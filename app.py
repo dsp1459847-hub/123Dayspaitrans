@@ -2,116 +2,112 @@ import streamlit as st
 import pandas as pd
 from collections import Counter
 from itertools import combinations
+from datetime import timedelta
 
 # Page Setup
-st.set_page_config(page_title="Ultimate Jackpot AI", layout="wide")
+st.set_page_config(page_title="Pattern Backtest AI", layout="wide")
 
-st.title("🚀 Ultimate Automatic Number Generator & Pattern AI")
-st.write("यह सिस्टम खुद ही पैटर्न चुनता है और आपके लिए फाइनल नंबर तैयार करता है।")
+st.title("🧪 Pattern Accuracy & Backtest Dashboard")
+st.write("पुरानी तारीखें चुनकर चेक करें कि आपका पैटर्न कितना सटीक (Setik) बैठ रहा है।")
 
 # 1. Master Patterns & Config
 master_patterns = [0, -18, -16, -26, -32, -1, -4, -11, -15, -10, -51, -50, 15, 5, -5, -55, 1, 10, 11, 51, 55, -40]
 shifts = ['DS', 'FD', 'GD', 'GL', 'DB', 'SG']
 
-# 2. Sidebar - Input & Settings
-st.sidebar.header("📥 डेटा और इनपुट")
-uploaded_file = st.sidebar.file_uploader("Data File (CSV/Excel)", type=['csv', 'xlsx'])
-window = st.sidebar.select_slider("विश्लेषण अवधि (Days)", options=[1, 3, 7, 10, 15, 30], value=30)
+# 2. Sidebar - File Upload
+uploaded_file = st.sidebar.file_uploader("Data File Upload (CSV/Excel)", type=['csv', 'xlsx'])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+    if 'DATE' in df.columns:
+        df['DATE'] = pd.to_datetime(df['DATE']).dt.date
+    
     for col in shifts:
         if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    # --- SUCCESS EXTRACTION ---
+    # --- FEATURE 1: MANUAL DATE SELECTION (तारीख बदलने वाला बटन) ---
+    st.sidebar.header("📅 विश्लेषण की तारीख चुनें")
+    available_dates = df['DATE'].dropna().unique()
+    selected_base_date = st.sidebar.selectbox("Base Date चुनें (जिसके आधार पर नंबर निकालने हैं)", options=reversed(available_dates))
+
+    # Get index of selected date
+    base_idx = df[df['DATE'] == selected_base_date].index[0]
+    
+    # --- CALCULATION LOGIC ---
+    # Success patterns up to selected date for trend analysis
     success_history = []
-    shift_wise_success = {s: [] for s in shifts}
-    for i in range(len(df) - 1):
-        today_all = set(df.loc[i, shifts].dropna().values)
-        tomorrow_all = set(df.loc[i+1, shifts].dropna().values)
-        if not today_all or not tomorrow_all: continue
-        
-        day_found = [p for val in today_all for p in master_patterns if (val + p) % 100 in tomorrow_all]
-        success_history.append(list(set(day_found)))
-        
-        for s in shifts:
-            s_val = df.loc[i, s]
-            if not pd.isna(s_val):
-                s_found = [p for p in master_patterns if (s_val + p) % 100 in tomorrow_all]
-                shift_wise_success[s].append(list(set(s_found)))
+    for i in range(1, base_idx + 1):
+        today_vals = set(df.loc[i-1, shifts].dropna().values)
+        tmrw_vals = set(df.loc[i, shifts].dropna().values)
+        found = [p for v in today_vals for p in master_patterns if (v + p) % 100 in tmrw_vals]
+        success_history.append(list(set(found)))
 
-    # --- SECTION 1: TREND ANALYSIS ---
-    st.header("📊 Trend & Jackpot Alerts")
-    recent_data = success_history[-window:]
-    flat_recent = [p for sub in recent_data for p in sub]
+    # Get Top Patterns for this specific window
+    flat_recent = [p for sub in success_history[-30:] for p in sub]
     top_patterns = [p for p, c in Counter(flat_recent).most_common(10)]
+
+    # --- RESULTS SECTION ---
+    st.header(f"📍 {selected_base_date} के आधार पर विश्लेषण")
     
-    # Double Jackpot Alert
-    last_shift_matches = {s: shift_wise_success[s][-1] for s in shifts if shift_wise_success[s]}
-    all_last_ps = [p for sub in last_shift_matches.values() for p in sub]
-    double_alerts = [p for p, count in Counter(all_last_ps).items() if count >= 2]
-    
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.info(f"📅 पिछले {window} दिन के टॉप पैटर्न: {top_patterns[:5]}")
-    with col_b:
-        if double_alerts:
-            st.warning(f"🚀 DOUBLE JACKPOT ALERT: {double_alerts}")
+    base_nums = df.loc[base_idx, shifts].dropna().to_dict()
+    predicted_nums = set()
+    for v in base_nums.values():
+        for p in top_patterns:
+            predicted_nums.add(int((v + p) % 100))
+
+    # Check if next day data exists for verification
+    if base_idx + 1 < len(df):
+        next_date = df.loc[base_idx + 1, 'DATE']
+        actual_nums = set(df.loc[base_idx + 1, shifts].dropna().values)
+        hits = predicted_nums.intersection(actual_nums)
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Base Date Numbers", f"{list(base_nums.values())}")
+        c2.metric(f"Actual Result ({next_date})", f"{list(actual_nums)}")
+        c3.metric("Total Hits (सटीक नंबर)", len(hits))
+        
+        if hits:
+            st.success(f"✅ पास हुए नंबर: {sorted(list(hits))}")
         else:
-            st.success("आज कोई Double Jackpot अलर्ट नहीं है।")
+            st.error("❌ इस दिन कोई नंबर मैच नहीं हुआ।")
+    else:
+        st.warning(f"{selected_base_date} के बाद का डेटा उपलब्ध नहीं है। यह भविष्य की प्रेडिक्शन है।")
+        st.write(f"कल के संभावित नंबर: {sorted(list(predicted_nums))}")
 
-    # --- SECTION 2: AUTOMATIC NUMBER GENERATOR ---
+    # --- FEATURE 2: 10-DAY BACKTEST SCOREBOARD ---
     st.divider()
-    st.header("🎯 Final Automatic Number Predictions")
-    st.write("सिस्टम ने आज के नंबरों और सबसे मजबूत पैटर्नों को मिलाकर ये नंबर निकाले हैं:")
+    st.header("📊 पिछले 10 दिनों का रिपोर्ट कार्ड (Accuracy Check)")
+    
+    backtest_data = []
+    # Loop for last 10 days
+    start_test = max(1, len(df) - 11)
+    end_test = len(df) - 1
+    
+    hits_count = 0
+    for i in range(start_test, end_test):
+        b_date = df.loc[i, 'DATE']
+        b_nums = df.loc[i, shifts].dropna().values
+        next_actual = set(df.loc[i+1, shifts].dropna().values)
+        
+        # Simple prediction with top 10 patterns
+        d_preds = set()
+        for v in b_nums:
+            for p in top_patterns:
+                d_preds.add(int((v + p) % 100))
+        
+        d_hits = d_preds.intersection(next_actual)
+        status = "✅ Pass" if d_hits else "❌ Fail"
+        if d_hits: hits_count += 1
+        
+        backtest_data.append({
+            "तारीख": b_date,
+            "रिजल्ट": status,
+            "मैच हुए नंबर": sorted(list(d_hits)) if d_hits else "-"
+        })
 
-    today_nums = df.iloc[-1][shifts].dropna().to_dict()
-    
-    # Logic: Apply Top Patterns + Sequence Patterns + Double Jackpot Patterns
-    final_pattern_pool = set(top_patterns) | set(double_alerts)
-    
-    generated_numbers = []
-    for s_name, s_val in today_nums.items():
-        for p in final_pattern_pool:
-            res = int((s_val + p) % 100)
-            generated_numbers.append(res)
-    
-    # Frequency of generated numbers (Bar Counter)
-    num_counts = Counter(generated_numbers)
-    
-    # Display in Bar Groups
-    res_col1, res_col2, res_col3 = st.columns(3)
-    
-    with res_col1:
-        st.subheader("🔥 Super Strong (Bar 4+)")
-        super_s = [n for n, c in num_counts.items() if c >= 4]
-        st.write(sorted(super_s))
-
-    with res_col2:
-        st.subheader("⭐ Strong (Bar 2-3)")
-        strong_s = [n for n, c in num_counts.items() if 2 <= c <= 3]
-        st.write(sorted(strong_s))
-
-    with res_col3:
-        st.subheader("📍 Normal (Bar 1)")
-        normal_s = [n for n, c in num_counts.items() if c == 1]
-        st.write(sorted(normal_s))
-
-    # --- SECTION 3: SEQUENCE CHAIN ---
-    st.divider()
-    st.header("🔗 Sequence Chain (History)")
-    chain_size = st.select_slider("सीक्वेंस गहराई", options=[1, 2, 3, 4, 5], value=1)
-    
-    seq_counter = Counter()
-    for i in range(len(recent_data) - 1):
-        curr, nxt = recent_data[i], recent_data[i+1]
-        if len(curr) >= chain_size:
-            for combo in combinations(sorted(curr), chain_size):
-                for n in nxt: seq_counter[(combo, n)] += 1
-    
-    if seq_counter:
-        st.table([{"आज के पैटर्न": k[0], "कल का पैटर्न": k[1], "कितनी बार आया": v} for k, v in seq_counter.most_common(8)])
+    st.table(backtest_data)
+    st.write(f"🎯 **कुल स्कोर:** 10 में से **{hits_count}** दिन प्रेडिक्शन सटीक रही।")
 
 else:
-    st.info("शुरू करने के लिए अपनी एक्सेल फाइल साइडबार में अपलोड करें।")
-                     
+    st.info("Sidebar में अपनी फाइल अपलोड करें।")
+        
