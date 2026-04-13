@@ -3,117 +3,115 @@ import pandas as pd
 from collections import Counter
 from itertools import combinations
 
-# Page Configuration
-st.set_page_config(page_title="Advanced Pattern Sequence AI", layout="wide")
+# Page Setup
+st.set_page_config(page_title="Ultimate Jackpot AI", layout="wide")
 
-st.title("📊 Advanced Pattern Sequence & Time-Window Analysis")
-st.write("1 दिन से लेकर 30 दिन तक के डेटा का गहन विश्लेषण और पैटर्न प्रेडिक्शन।")
+st.title("🚀 Ultimate Automatic Number Generator & Pattern AI")
+st.write("यह सिस्टम खुद ही पैटर्न चुनता है और आपके लिए फाइनल नंबर तैयार करता है।")
 
-# 1. Master Patterns List
+# 1. Master Patterns & Config
 master_patterns = [0, -18, -16, -26, -32, -1, -4, -11, -15, -10, -51, -50, 15, 5, -5, -55, 1, 10, 11, 51, 55, -40]
 shifts = ['DS', 'FD', 'GD', 'GL', 'DB', 'SG']
 
-# 2. File Upload
-uploaded_file = st.sidebar.file_uploader("अपनी एक्सेल/CSV फाइल अपलोड करें", type=['csv', 'xlsx'])
+# 2. Sidebar - Input & Settings
+st.sidebar.header("📥 डेटा और इनपुट")
+uploaded_file = st.sidebar.file_uploader("Data File (CSV/Excel)", type=['csv', 'xlsx'])
+window = st.sidebar.select_slider("विश्लेषण अवधि (Days)", options=[1, 3, 7, 10, 15, 30], value=30)
 
 if uploaded_file:
-    # Load Data
-    if uploaded_file.name.endswith('.csv'):
-        df = pd.read_csv(uploaded_file)
-    else:
-        df = pd.read_excel(uploaded_file)
-
-    # Clean Data
+    df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
     for col in shifts:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+        if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    # 3. Sidebar - Time Window Selection
-    window = st.sidebar.selectbox(
-        "विश्लेषण के लिए दिन चुनें (Lookback Window)",
-        options=[1, 3, 5, 7, 10, 15, 30],
-        format_func=lambda x: f"पिछले {x} दिन" if x > 1 else "सिर्फ आज (1 दिन)"
-    )
-
-    # Filter data based on window
-    recent_df = df.tail(window + 2).reset_index(drop=True) # Extra days for transition calculation
-    
-    # 4. Success Pattern Extraction
-    # Har din kaun-kaun se pattern pass hue, uski list banate hain
-    success_sets = []
+    # --- SUCCESS EXTRACTION ---
+    success_history = []
+    shift_wise_success = {s: [] for s in shifts}
     for i in range(len(df) - 1):
-        today = set(df.loc[i, shifts].dropna().values)
-        tomorrow = set(df.loc[i+1, shifts].dropna().values)
+        today_all = set(df.loc[i, shifts].dropna().values)
+        tomorrow_all = set(df.loc[i+1, shifts].dropna().values)
+        if not today_all or not tomorrow_all: continue
         
-        if not today or not tomorrow: continue
+        day_found = [p for val in today_all for p in master_patterns if (val + p) % 100 in tomorrow_all]
+        success_history.append(list(set(day_found)))
         
-        found_patterns = []
-        for val in today:
-            for p in master_patterns:
-                if (val + p) % 100 in tomorrow:
-                    found_patterns.append(p)
-        success_sets.append(list(set(found_patterns)))
+        for s in shifts:
+            s_val = df.loc[i, s]
+            if not pd.isna(s_val):
+                s_found = [p for p in master_patterns if (s_val + p) % 100 in tomorrow_all]
+                shift_wise_success[s].append(list(set(s_found)))
 
-    # Only look at the selected window
-    recent_success = success_sets[-window:] if window < len(success_sets) else success_sets
-
-    # --- FREQUENCY ANALYSIS ---
-    st.header(f"📈 पिछले {window} दिन की फ्रीक्वेंसी")
-    all_flat_patterns = [p for s in recent_success for p in s]
-    freq_counts = Counter(all_flat_patterns)
+    # --- SECTION 1: TREND ANALYSIS ---
+    st.header("📊 Trend & Jackpot Alerts")
+    recent_data = success_history[-window:]
+    flat_recent = [p for sub in recent_data for p in sub]
+    top_patterns = [p for p, c in Counter(flat_recent).most_common(10)]
     
-    freq_df = pd.DataFrame(freq_counts.items(), columns=['Pattern', 'Matches']).sort_values(by='Matches', ascending=False)
-    st.bar_chart(freq_df.set_index('Pattern'))
-
-    # --- SEQUENCE ANALYSIS (Transitions) ---
-    st.header(f"🔗 पैटर्न सीक्वेंस विश्लेषण (1 से 5 पैटर्न)")
+    # Double Jackpot Alert
+    last_shift_matches = {s: shift_wise_success[s][-1] for s in shifts if shift_wise_success[s]}
+    all_last_ps = [p for sub in last_shift_matches.values() for p in sub]
+    double_alerts = [p for p, count in Counter(all_last_ps).items() if count >= 2]
     
-    tabs = st.tabs(["1 पैटर्न के बाद", "2 के बाद", "3 के बाद", "4 के बाद", "5 के बाद"])
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.info(f"📅 पिछले {window} दिन के टॉप पैटर्न: {top_patterns[:5]}")
+    with col_b:
+        if double_alerts:
+            st.warning(f"🚀 DOUBLE JACKPOT ALERT: {double_alerts}")
+        else:
+            st.success("आज कोई Double Jackpot अलर्ट नहीं है।")
 
-    for size in range(1, 6):
-        with tabs[size-1]:
-            st.subheader(f"{size} पैटर्न के बाद कौन सा अगला आएगा?")
-            
-            combos = Counter()
-            for i in range(len(recent_success) - 1):
-                current_day_patterns = recent_success[i]
-                next_day_patterns = recent_success[i+1]
-                
-                if len(current_day_patterns) >= size:
-                    for combo in combinations(sorted(current_day_patterns), size):
-                        for next_p in next_day_patterns:
-                            combos[(combo, next_p)] += 1
-            
-            if combos:
-                combo_results = []
-                for (prev, nxt), count in combos.most_common(15):
-                    combo_results.append({
-                        "Current Group": str(prev),
-                        "Next Pattern": nxt,
-                        "Times Seen": count
-                    })
-                st.table(pd.DataFrame(combo_results))
-            else:
-                st.write("इस विंडो में कोई मजबूत सीक्वेंस नहीं मिला।")
-
-    # --- PREDICTION FOR TOMORROW ---
+    # --- SECTION 2: AUTOMATIC NUMBER GENERATOR ---
     st.divider()
-    st.header("🔮 कल के लिए प्रेडिक्शन (Based on Window)")
+    st.header("🎯 Final Automatic Number Predictions")
+    st.write("सिस्टम ने आज के नंबरों और सबसे मजबूत पैटर्नों को मिलाकर ये नंबर निकाले हैं:")
+
+    today_nums = df.iloc[-1][shifts].dropna().to_dict()
     
-    last_day_patterns = success_sets[-1] if success_sets else []
-    st.write(f"आज के सफल पैटर्न: `{last_day_patterns}`")
+    # Logic: Apply Top Patterns + Sequence Patterns + Double Jackpot Patterns
+    final_pattern_pool = set(top_patterns) | set(double_alerts)
     
-    # Suggest numbers based on the last observed sequence in this window
-    suggested_next = []
-    for (prev, nxt), count in combos.most_common(5):
-        if set(prev).issubset(set(last_day_patterns)):
-            suggested_next.append(nxt)
+    generated_numbers = []
+    for s_name, s_val in today_nums.items():
+        for p in final_pattern_pool:
+            res = int((s_val + p) % 100)
+            generated_numbers.append(res)
     
-    if suggested_next:
-        st.success(f"सीक्वेंस के आधार पर कल के टॉप पैटर्न: `{list(set(suggested_next))}`")
-    else:
-        st.info("आज के पैटर्न से कोई पुराना सीक्वेंस मैच नहीं हुआ। टॉप फ्रीक्वेंसी पैटर्न का उपयोग करें।")
+    # Frequency of generated numbers (Bar Counter)
+    num_counts = Counter(generated_numbers)
+    
+    # Display in Bar Groups
+    res_col1, res_col2, res_col3 = st.columns(3)
+    
+    with res_col1:
+        st.subheader("🔥 Super Strong (Bar 4+)")
+        super_s = [n for n, c in num_counts.items() if c >= 4]
+        st.write(sorted(super_s))
+
+    with res_col2:
+        st.subheader("⭐ Strong (Bar 2-3)")
+        strong_s = [n for n, c in num_counts.items() if 2 <= c <= 3]
+        st.write(sorted(strong_s))
+
+    with res_col3:
+        st.subheader("📍 Normal (Bar 1)")
+        normal_s = [n for n, c in num_counts.items() if c == 1]
+        st.write(sorted(normal_s))
+
+    # --- SECTION 3: SEQUENCE CHAIN ---
+    st.divider()
+    st.header("🔗 Sequence Chain (History)")
+    chain_size = st.select_slider("सीक्वेंस गहराई", options=[1, 2, 3, 4, 5], value=1)
+    
+    seq_counter = Counter()
+    for i in range(len(recent_data) - 1):
+        curr, nxt = recent_data[i], recent_data[i+1]
+        if len(curr) >= chain_size:
+            for combo in combinations(sorted(curr), chain_size):
+                for n in nxt: seq_counter[(combo, n)] += 1
+    
+    if seq_counter:
+        st.table([{"आज के पैटर्न": k[0], "कल का पैटर्न": k[1], "कितनी बार आया": v} for k, v in seq_counter.most_common(8)])
 
 else:
-    st.warning("कृपया विश्लेषण शुरू करने के लिए डेटा फाइल अपलोड करें।")
-  
+    st.info("शुरू करने के लिए अपनी एक्सेल फाइल साइडबार में अपलोड करें।")
+                     
