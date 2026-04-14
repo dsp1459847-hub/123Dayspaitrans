@@ -5,17 +5,18 @@ from itertools import combinations
 from datetime import timedelta
 
 # Page Setup
-st.set_page_config(page_title="Pattern Backtest AI", layout="wide")
+st.set_page_config(page_title="Master Pattern AI", layout="wide")
 
-st.title("🧪 Pattern Accuracy & Backtest Dashboard")
-st.write("पुरानी तारीखें चुनकर चेक करें कि आपका पैटर्न कितना सटीक (Setik) बैठ रहा है।")
+st.title("🎯 Ultimate Pattern Prediction & Backtest Tool")
+st.write("आज के नंबरों से पैटर्न निकालें और अगले 24-48 घंटों के सटीक नंबर पाएं।")
 
-# 1. Master Patterns & Config
+# 1. Master Patterns Config
 master_patterns = [0, -18, -16, -26, -32, -1, -4, -11, -15, -10, -51, -50, 15, 5, -5, -55, 1, 10, 11, 51, 55, -40]
 shifts = ['DS', 'FD', 'GD', 'GL', 'DB', 'SG']
 
 # 2. Sidebar - File Upload
-uploaded_file = st.sidebar.file_uploader("Data File Upload (CSV/Excel)", type=['csv', 'xlsx'])
+uploaded_file = st.sidebar.file_uploader("Data File (CSV/Excel)", type=['csv', 'xlsx'])
+window = st.sidebar.select_slider("Trend Window (Days)", options=[1, 3, 7, 10, 15, 30], value=30)
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
@@ -25,89 +26,108 @@ if uploaded_file:
     for col in shifts:
         if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    # --- FEATURE 1: MANUAL DATE SELECTION (तारीख बदलने वाला बटन) ---
-    st.sidebar.header("📅 विश्लेषण की तारीख चुनें")
+    # --- DATE SELECTION ---
+    st.sidebar.header("📅 तारीख चुनें")
     available_dates = df['DATE'].dropna().unique()
-    selected_base_date = st.sidebar.selectbox("Base Date चुनें (जिसके आधार पर नंबर निकालने हैं)", options=reversed(available_dates))
-
-    # Get index of selected date
+    selected_base_date = st.sidebar.selectbox("Base Date (प्रेडिक्शन के लिए):", options=reversed(available_dates))
     base_idx = df[df['DATE'] == selected_base_date].index[0]
+
+    # --- STEP 1: PATTERN EXTRACTION (पैटर्न निकालना) ---
+    st.header(f"🔍 स्टेप 1: {selected_base_date} के पैटर्न का विश्लेषण")
     
-    # --- CALCULATION LOGIC ---
-    # Success patterns up to selected date for trend analysis
-    success_history = []
-    for i in range(1, base_idx + 1):
-        today_vals = set(df.loc[i-1, shifts].dropna().values)
-        tmrw_vals = set(df.loc[i, shifts].dropna().values)
-        found = [p for v in today_vals for p in master_patterns if (v + p) % 100 in tmrw_vals]
-        success_history.append(list(set(found)))
-
-    # Get Top Patterns for this specific window
-    flat_recent = [p for sub in success_history[-30:] for p in sub]
-    top_patterns = [p for p, c in Counter(flat_recent).most_common(10)]
-
-    # --- RESULTS SECTION ---
-    st.header(f"📍 {selected_base_date} के आधार पर विश्लेषण")
+    # Yesterday for sequence logic
+    yesterday_vals = df.loc[base_idx-1, shifts].dropna().values if base_idx > 0 else []
+    today_vals = df.loc[base_idx, shifts].dropna().to_dict()
     
-    base_nums = df.loc[base_idx, shifts].dropna().to_dict()
-    predicted_nums = set()
-    for v in base_nums.values():
-        for p in top_patterns:
-            predicted_nums.add(int((v + p) % 100))
+    # Finding what patterns worked today
+    today_worked_ps = []
+    if len(yesterday_vals) > 0:
+        for v_y in yesterday_vals:
+            for v_t in today_vals.values():
+                p = int((v_t - v_y) % 100)
+                for mp in master_patterns:
+                    if mp % 100 == p:
+                        today_worked_ps.append(mp)
+    
+    st.write(f"आज के सक्रिय पैटर्न (Active Patterns): `{list(set(today_worked_ps))}`")
 
-    # Check if next day data exists for verification
+    # --- STEP 2: NUMBER GENERATION (नंबर प्रेडिक्शन) ---
+    st.header(f"🔮 स्टेप 2: {selected_base_date} के आधार पर अगले दिन के नंबर")
+    
+    # Application of All 22 Patterns
+    all_gen_nums = []
+    for s_val in today_vals.values():
+        for p in master_patterns:
+            all_gen_nums.append(int((s_val + p) % 100))
+    
+    num_counts = Counter(all_gen_nums)
+    
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.subheader("🔥 Super Strong (4+ Bar)")
+        super_list = sorted([n for n, c in num_counts.items() if c >= 4])
+        st.write(super_list if super_list else "None")
+        
+    with c2:
+        st.subheader("⭐ Strong (2-3 Bar)")
+        st.write(sorted([n for n, c in num_counts.items() if 2 <= c <= 3]))
+        
+    with c3:
+        st.subheader("📍 Normal (1 Bar)")
+        st.write(sorted([n for n, c in num_counts.items() if c == 1]))
+
+    # --- STEP 3: BACKTESTING (नतीजा चेक करना) ---
+    st.divider()
+    st.header("🧪 स्टेप 3: बैक-टेस्ट (क्या प्रेडिक्शन सही थी?)")
+    
     if base_idx + 1 < len(df):
         next_date = df.loc[base_idx + 1, 'DATE']
         actual_nums = set(df.loc[base_idx + 1, shifts].dropna().values)
-        hits = predicted_nums.intersection(actual_nums)
+        predicted_set = set(all_gen_nums)
+        hits = predicted_set.intersection(actual_nums)
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Base Date Numbers", f"{list(base_nums.values())}")
-        c2.metric(f"Actual Result ({next_date})", f"{list(actual_nums)}")
-        c3.metric("Total Hits (सटीक नंबर)", len(hits))
+        col_res1, col_res2 = st.columns(2)
+        with col_res1:
+            st.metric(f"असल रिजल्ट ({next_date})", f"{list(actual_nums)}")
+        with col_res2:
+            st.metric("टोटल मैच (Hits)", len(hits))
         
         if hits:
             st.success(f"✅ पास हुए नंबर: {sorted(list(hits))}")
         else:
             st.error("❌ इस दिन कोई नंबर मैच नहीं हुआ।")
     else:
-        st.warning(f"{selected_base_date} के बाद का डेटा उपलब्ध नहीं है। यह भविष्य की प्रेडिक्शन है।")
-        st.write(f"कल के संभावित नंबर: {sorted(list(predicted_nums))}")
+        st.info("यह सबसे ताज़ा तारीख है, इसका रिजल्ट कल आएगा।")
 
-    # --- FEATURE 2: 10-DAY BACKTEST SCOREBOARD ---
+    # --- STEP 4: 10-DAY ACCURACY SCORE ---
     st.divider()
-    st.header("📊 पिछले 10 दिनों का रिपोर्ट कार्ड (Accuracy Check)")
+    st.header("📊 पिछले 10 दिनों का सटीकता स्कोर")
     
-    backtest_data = []
-    # Loop for last 10 days
-    start_test = max(1, len(df) - 11)
-    end_test = len(df) - 1
+    accuracy_data = []
+    pass_days = 0
+    start_point = max(1, len(df) - 11)
     
-    hits_count = 0
-    for i in range(start_test, end_test):
+    for i in range(start_point, len(df) - 1):
         b_date = df.loc[i, 'DATE']
         b_nums = df.loc[i, shifts].dropna().values
-        next_actual = set(df.loc[i+1, shifts].dropna().values)
+        next_res = set(df.loc[i+1, shifts].dropna().values)
         
-        # Simple prediction with top 10 patterns
         d_preds = set()
         for v in b_nums:
-            for p in top_patterns:
+            for p in master_patterns:
                 d_preds.add(int((v + p) % 100))
         
-        d_hits = d_preds.intersection(next_actual)
-        status = "✅ Pass" if d_hits else "❌ Fail"
-        if d_hits: hits_count += 1
-        
-        backtest_data.append({
+        d_hits = d_preds.intersection(next_res)
+        if d_hits: pass_days += 1
+        accuracy_data.append({
             "तारीख": b_date,
-            "रिजल्ट": status,
-            "मैच हुए नंबर": sorted(list(d_hits)) if d_hits else "-"
+            "रिजल्ट": "✅ Pass" if d_hits else "❌ Fail",
+            "मैच": sorted(list(d_hits)) if d_hits else "-"
         })
-
-    st.table(backtest_data)
-    st.write(f"🎯 **कुल स्कोर:** 10 में से **{hits_count}** दिन प्रेडिक्शन सटीक रही।")
+    
+    st.table(accuracy_data)
+    st.write(f"🎯 **10 में से {pass_days} दिन सटीक रहे।**")
 
 else:
-    st.info("Sidebar में अपनी फाइल अपलोड करें।")
-        
+    st.info("शुरू करने के लिए Sidebar में अपनी एक्सेल फाइल अपलोड करें।")
+    
